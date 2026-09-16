@@ -1,0 +1,27 @@
+[tool.poetry]
+name = "battlelens-backend"
+version = "0.1.0"
+description = "BattleLens backend API (FastAPI)"
+authors = ["BattleLens"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.115.0"
+uvicorn = { extras = ["standard"], version = "^0.32.0" }
+gunicorn = "^23.0.0"
+pydantic = "^2.9.0"
+pydantic-settings = "^2.5.0"
+sqlalchemy = "^2.0.35"
+alembic = "^1.13.3"
+pymysql = "^1.1.1"
+cryptography = "^43.0.1"
+boto3 = "^1.35.0"
+httpx = "^0.27.2"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.3"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

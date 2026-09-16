@@ -1,0 +1,52 @@
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+	background: var(--color-bg);
+	color: var(--color-text);
+	font-family: var(--font-sans, system-ui, sans-serif);
+}
+
+button {
+	font: inherit;
+	cursor: pointer;
+	border-radius: var(--radius);
+	border: 1px solid var(--color-border);
+	background: var(--color-surface);
+	color: var(--color-text);
+	padding: var(--size-1) var(--size-3);
+}
+
+button.primary {
+	background: var(--color-primary);
+	color: var(--color-primary-contrast);
+	border-color: var(--color-primary);
+}
+
+button.danger {
+	background: var(--color-danger);
+	color: white;
+	border-color: var(--color-danger);
+}
+
+input,
+select {
+	font: inherit;
+	padding: var(--size-1);
+	border-radius: var(--radius);
+	border: 1px solid var(--color-border);
+	background: var(--color-surface);
+	color: var(--color-text);
+}
+
+.card {
+	background: var(--color-surface);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius);
+	box-shadow: var(--shadow);
+	padding: var(--size-4);
+}

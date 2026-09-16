@@ -1,0 +1,38 @@
+# Node / frontend
+node_modules/
+frontend/public/build/
+frontend/.rollup.cache/
+npm-debug.log*
+
+# Python / backend
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Poetry
+backend/dist/
+
+# ローカル動作確認用の使い捨てDB(本番はRDS for MySQLを使用)
+backend/*.db
+
+# CDK
+infra/cdk.out/
+infra/.venv/
+infra/__pycache__/
+
+# Env / secrets
+.env
+.env.*
+*.pem
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Claude Code のローカル設定(個人環境依存)
+.claude/settings.local.json

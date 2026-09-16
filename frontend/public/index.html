@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+	<meta charset="utf8" />
+	<meta name="viewport" content="width=device-width,initial-scale=1" />
+	<title>BattleLens</title>
+
+	<link rel="stylesheet" href="/build/bundle.css" />
+
+	<script>
+		// APIのベースURLを実行時に注入する。
+		// ローカル開発ではバックエンドを直接、本番ではCloudFrontの /api パスを叩く。
+		window.__API_BASE__ = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+			? 'http://localhost:8000'
+			: '/api';
+	</script>
+
+	<script defer src="/build/bundle.js"></script>
+</head>
+
+<body>
+</body>
+</html>

@@ -1,0 +1,59 @@
+/*
+  Tailwindのユーティリティクラスの代わりに、CSSカスタムプロパティによる
+  デザイントークンで配色・余白・角丸などを一元管理する。
+  ベースは open-props (npm、src/main.js で 'open-props/style' をJS importして
+  先に読み込んでいる) のトークン値を土台に、アプリ独自のセマンティック
+  トークン(--color-bg 等)を薄くかぶせている。
+*/
+
+:root {
+	--color-bg: var(--gray-0);
+	--color-surface: white;
+	--color-border: var(--gray-3);
+	--color-text: var(--gray-9);
+	--color-text-muted: var(--gray-6);
+	--color-primary: var(--indigo-6);
+	--color-primary-contrast: white;
+	--color-danger: var(--red-6);
+
+	--radius: var(--radius-2);
+	--shadow: var(--shadow-2);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--color-bg: var(--gray-9);
+		--color-surface: var(--gray-8);
+		--color-border: var(--gray-7);
+		--color-text: var(--gray-0);
+		--color-text-muted: var(--gray-4);
+	}
+}
+
+/* タイプごとの色分けバッジ(公式アセットは使わず自作の配色のみ) */
+.type-badge {
+	display: inline-block;
+	padding: var(--size-1) var(--size-2);
+	border-radius: var(--radius-round);
+	font-size: var(--font-size-0);
+	color: white;
+	text-transform: capitalize;
+}
+.type-normal { background: #a8a878; }
+.type-fire { background: #f08030; }
+.type-water { background: #6890f0; }
+.type-electric { background: #f8d030; color: #333; }
+.type-grass { background: #78c850; }
+.type-ice { background: #98d8d8; color: #333; }
+.type-fighting { background: #c03028; }
+.type-poison { background: #a040a0; }
+.type-ground { background: #e0c068; color: #333; }
+.type-flying { background: #a890f0; }
+.type-psychic { background: #f85888; }
+.type-bug { background: #a8b820; }
+.type-rock { background: #b8a038; }
+.type-ghost { background: #705898; }
+.type-dragon { background: #7038f8; }
+.type-dark { background: #705848; }
+.type-steel { background: #b8b8d0; color: #333; }
+.type-fairy { background: #ee99ac; color: #333; }
