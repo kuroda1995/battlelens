@@ -1,0 +1,82 @@
+#!/bin/bash
+# EC2初回起動時に実行されるセットアップスクリプト。
+# CDK(infra/infra_stack.py)が __XXX__ のプレースホルダを実際の値に置き換えてから
+# EC2のUserDataとして渡す。
+set -euxo pipefail
+
+dnf update -y
+dnf install -y python3.11 python3.11-pip nginx unzip jq
+
+# Poetry(backendの依存関係管理ツール)を導入し、本番でもローカルと同じ道具で
+# 依存関係を解決する。
+curl -sSL https://install.python-poetry.org | python3.11 -
+export PATH="/root/.local/bin:$PATH"
+
+mkdir -p /opt/battlelens
+aws s3 cp "s3://__ASSET_BUCKET__/__ASSET_KEY__" /opt/battlelens.zip
+unzip -o /opt/battlelens.zip -d /opt/battlelens/app
+cd /opt/battlelens/app
+
+poetry env use python3.11
+poetry install --no-root --only main
+
+# RDS作成時にSecrets Managerへ自動生成された認証情報(ユーザー名・パスワード)を取得する。
+SECRET_JSON=$(aws secretsmanager get-secret-value \
+  --secret-id "__DB_SECRET_ARN__" \
+  --query SecretString --output text \
+  --region "__AWS_REGION__")
+DB_USER=$(echo "$SECRET_JSON" | jq -r .username)
+DB_PASSWORD=$(echo "$SECRET_JSON" | jq -r .password)
+
+mkdir -p /etc/battlelens
+cat > /etc/battlelens/env <<EOF
+DATABASE_URL=mysql+pymysql://${DB_USER}:${DB_PASSWORD}@__DB_ENDPOINT__:__DB_PORT__/battlelens
+FRONTEND_ORIGIN=*
+EOF
+chmod 600 /etc/battlelens/env
+
+VENV_PATH=$(poetry env info --path)
+
+# アプリ起動前にDBスキーマを最新化する(初回はテーブル作成)。
+set -a
+source /etc/battlelens/env
+set +a
+"${VENV_PATH}/bin/alembic" upgrade head
+
+cat > /etc/systemd/system/battlelens.service <<EOF
+[Unit]
+Description=BattleLens FastAPI app
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/battlelens/app
+EnvironmentFile=/etc/battlelens/env
+ExecStart=${VENV_PATH}/bin/gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 2 -b 127.0.0.1:8000
+Restart=always
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable battlelens
+systemctl start battlelens
+
+# CloudFrontから /api/* で届いたリクエストの "/api" プレフィックスを外して
+# バックエンド(127.0.0.1:8000)へ橋渡しする。
+cat > /etc/nginx/conf.d/battlelens.conf <<'NGINXEOF'
+server {
+    listen 80;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+NGINXEOF
+rm -f /etc/nginx/conf.d/default.conf || true
+systemctl enable nginx
+systemctl restart nginx
