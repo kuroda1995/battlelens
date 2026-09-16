@@ -22,6 +22,8 @@ backend/*.db
 infra/cdk.out/
 infra/.venv/
 infra/__pycache__/
+infra/.db-password.txt
+infra/outputs.json
 
 # Env / secrets
 .env

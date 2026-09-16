@@ -5,7 +5,7 @@
 set -euxo pipefail
 
 dnf update -y
-dnf install -y python3.11 python3.11-pip nginx unzip jq
+dnf install -y python3.11 python3.11-pip nginx unzip
 
 # Poetry(backendの依存関係管理ツール)を導入し、本番でもローカルと同じ道具で
 # 依存関係を解決する。
@@ -20,17 +20,12 @@ cd /opt/battlelens/app
 poetry env use python3.11
 poetry install --no-root --only main
 
-# RDS作成時にSecrets Managerへ自動生成された認証情報(ユーザー名・パスワード)を取得する。
-SECRET_JSON=$(aws secretsmanager get-secret-value \
-  --secret-id "__DB_SECRET_ARN__" \
-  --query SecretString --output text \
-  --region "__AWS_REGION__")
-DB_USER=$(echo "$SECRET_JSON" | jq -r .username)
-DB_PASSWORD=$(echo "$SECRET_JSON" | jq -r .password)
-
+# DB認証情報はSecrets Managerを使わず(無料枠に収めるため)、CDKが
+# ビルド時にこのファイル自体へ直接埋め込んでいる(infra/.db-password.txt 由来、
+# gitには含めない)。
 mkdir -p /etc/battlelens
 cat > /etc/battlelens/env <<EOF
-DATABASE_URL=mysql+pymysql://${DB_USER}:${DB_PASSWORD}@__DB_ENDPOINT__:__DB_PORT__/battlelens
+DATABASE_URL=mysql+pymysql://__DB_USERNAME__:__DB_PASSWORD__@__DB_ENDPOINT__:__DB_PORT__/battlelens
 FRONTEND_ORIGIN=*
 EOF
 chmod 600 /etc/battlelens/env
