@@ -7,19 +7,28 @@
 設計上のポイント(docs/tech-stack-rationale.md と対応):
   - RDSは分離サブネットに置き、EC2からのみ3306番ポートで到達可能にする。
   - EC2の運用はSSM Session Manager経由とし、SSH鍵・22番ポート開放を行わない。
-  - DBの認証情報はSecrets Managerで自動生成・管理し、コードに直書きしない。
   - NATゲートウェイは使わずコストを抑える(分離サブネットは外向き通信不要)。
+  - DBの認証情報は、当初Secrets Manager(月$0.40程度が無料枠対象外)で
+    自動生成する設計にしていたが、個人の学習用プロジェクトを完全に無料枠内に
+    収めるため、ローカルにのみ保存するパスワード(gitには含めない)を
+    EC2のUserDataに直接埋め込む方式に変更した。複数人が関わる本番システムでは
+    Secrets Manager等のマネージド管理に戻すべきトレードオフとして認識している。
+  - 意図せず無料枠を超えた場合に気づけるよう、AWS Budgetsで月額の予算アラートを
+    設定する(作成自体は無料)。
 """
 
 import os
+import secrets as secrets_module
 
 from aws_cdk import (
     CfnOutput,
     Duration,
     IgnoreMode,
     RemovalPolicy,
+    SecretValue,
     Stack,
 )
+from aws_cdk import aws_budgets as budgets
 from aws_cdk import aws_cloudfront as cloudfront
 from aws_cdk import aws_cloudfront_origins as origins
 from aws_cdk import aws_ec2 as ec2
@@ -32,6 +41,26 @@ from constructs import Construct
 
 _INFRA_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REPO_ROOT = os.path.dirname(_INFRA_DIR)
+_DB_PASSWORD_FILE = os.path.join(_INFRA_DIR, ".db-password.txt")
+
+# 予算アラートの通知先・しきい値
+BUDGET_ALERT_EMAIL = "kuromaru.yurulife@gmail.com"
+BUDGET_MONTHLY_LIMIT_USD = 5  # 目安: 約500〜700円
+
+
+def _get_or_create_db_password() -> str:
+    """DBパスワードをローカルファイルに保存し、synthのたびに変わらないようにする。
+
+    このファイルはgit管理下に置かない(.gitignore参照)。Secrets Managerを
+    使わない代わりに、開発者のローカル環境にのみ平文で保存する。
+    """
+    if os.path.exists(_DB_PASSWORD_FILE):
+        with open(_DB_PASSWORD_FILE, encoding="utf-8") as f:
+            return f.read().strip()
+    password = secrets_module.token_urlsafe(24)
+    with open(_DB_PASSWORD_FILE, "w", encoding="utf-8") as f:
+        f.write(password)
+    return password
 
 
 class BattleLensStack(Stack):
@@ -78,8 +107,12 @@ class BattleLensStack(Stack):
 
         # ------------------------------------------------------------------
         # RDS for MySQL(分離サブネット・パブリックアクセス不可)
-        # 認証情報はSecrets Managerに自動生成させ、コードに書かない。
+        # 認証情報はSecrets Managerを使わず、ローカルにのみ保存したパスワードを使う
+        # (無料枠に完全に収めるための判断。詳細はファイル冒頭のコメント参照)。
         # ------------------------------------------------------------------
+        db_username = "battlelens_admin"
+        db_password = _get_or_create_db_password()
+
         database = rds.DatabaseInstance(
             self,
             "Database",
@@ -88,7 +121,9 @@ class BattleLensStack(Stack):
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
             security_groups=[db_security_group],
-            credentials=rds.Credentials.from_generated_secret("battlelens_admin"),
+            credentials=rds.Credentials.from_password(
+                db_username, SecretValue.unsafe_plain_text(db_password)
+            ),
             database_name="battlelens",
             allocated_storage=20,
             publicly_accessible=False,
@@ -122,7 +157,6 @@ class BattleLensStack(Stack):
             ],
         )
         backend_asset.grant_read(app_role)
-        database.secret.grant_read(app_role)
 
         with open(os.path.join(_INFRA_DIR, "user_data.sh.template"), encoding="utf-8") as f:
             user_data_script = f.read()
@@ -130,10 +164,10 @@ class BattleLensStack(Stack):
         user_data_script = (
             user_data_script.replace("__ASSET_BUCKET__", backend_asset.s3_bucket_name)
             .replace("__ASSET_KEY__", backend_asset.s3_object_key)
-            .replace("__DB_SECRET_ARN__", database.secret.secret_arn)
+            .replace("__DB_USERNAME__", db_username)
+            .replace("__DB_PASSWORD__", db_password)
             .replace("__DB_ENDPOINT__", database.db_instance_endpoint_address)
             .replace("__DB_PORT__", database.db_instance_endpoint_port)
-            .replace("__AWS_REGION__", self.region)
         )
 
         instance = ec2.Instance(
@@ -197,9 +231,39 @@ class BattleLensStack(Stack):
         )
 
         # ------------------------------------------------------------------
+        # 予算アラート: 意図せず無料枠を超えた場合にメールで気づけるようにする
+        # (作成・アラート自体は無料)。
+        # ------------------------------------------------------------------
+        budgets.CfnBudget(
+            self,
+            "MonthlyCostBudget",
+            budget=budgets.CfnBudget.BudgetDataProperty(
+                budget_type="COST",
+                time_unit="MONTHLY",
+                budget_limit=budgets.CfnBudget.SpendProperty(
+                    amount=BUDGET_MONTHLY_LIMIT_USD, unit="USD"
+                ),
+            ),
+            notifications_with_subscribers=[
+                budgets.CfnBudget.NotificationWithSubscribersProperty(
+                    notification=budgets.CfnBudget.NotificationProperty(
+                        notification_type="ACTUAL",
+                        comparison_operator="GREATER_THAN",
+                        threshold=80,  # 実績が予算の80%(=$4)を超えたら通知
+                        threshold_type="PERCENTAGE",
+                    ),
+                    subscribers=[
+                        budgets.CfnBudget.SubscriberProperty(
+                            subscription_type="EMAIL", address=BUDGET_ALERT_EMAIL
+                        )
+                    ],
+                ),
+            ],
+        )
+
+        # ------------------------------------------------------------------
         # 出力
         # ------------------------------------------------------------------
         CfnOutput(self, "FrontendURL", value=f"https://{distribution.distribution_domain_name}")
         CfnOutput(self, "BackendPublicIp", value=eip.attr_public_ip)
-        CfnOutput(self, "DatabaseSecretArn", value=database.secret.secret_arn)
         CfnOutput(self, "DatabaseEndpoint", value=database.db_instance_endpoint_address)
