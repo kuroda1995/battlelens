@@ -14,21 +14,21 @@ pokemon-species / ability / move の names(language=ja-Hrkt)から取得する�
 """
 
 import asyncio
-import re
 
 import httpx
 from fastapi import APIRouter, HTTPException, status
 
+from app.champions_data import apply_base_stat_overrides
 from app.config import get_settings
+from app.pokeapi_client import extract_id, fetch_semaphore, japanese_name
 
 router = APIRouter(prefix="/species", tags=["species"])
 
 _species_name_cache: list[dict] | None = None
 _ability_name_cache: dict[str, str] = {}
-_move_name_cache: dict[str, str] = {}
+_move_detail_cache: dict[str, dict] = {}
 _detail_cache: dict[str, dict] = {}
 _cache_lock = asyncio.Lock()
-_fetch_semaphore = asyncio.Semaphore(20)
 
 _STAT_NAME_MAP = {
     "hp": "hp",
@@ -61,26 +61,6 @@ TYPE_NAME_JA = {
     "fairy": "フェアリー",
 }
 
-_URL_ID_RE = re.compile(r"/(\d+)/?$")
-
-
-def _extract_id(url: str) -> int:
-    match = _URL_ID_RE.search(url)
-    if not match:
-        raise ValueError(f"IDを抽出できませんでした: {url}")
-    return int(match.group(1))
-
-
-def _japanese_name(names: list[dict]) -> str | None:
-    for entry in names:
-        if entry["language"]["name"] == "ja-Hrkt":
-            return entry["name"]
-    for entry in names:
-        if entry["language"]["name"] == "ja":
-            return entry["name"]
-    return None
-
-
 async def _get_species_name_cache(client: httpx.AsyncClient) -> list[dict]:
     """id / 英語名(スラッグ) / 日本語名 の一覧を構築してキャッシュする。
 
@@ -102,15 +82,15 @@ async def _get_species_name_cache(client: httpx.AsyncClient) -> list[dict]:
         entries = list_resp.json()["results"]
 
         async def fetch_one(entry: dict) -> dict:
-            species_id = _extract_id(entry["url"])
-            async with _fetch_semaphore:
+            species_id = extract_id(entry["url"])
+            async with fetch_semaphore:
                 resp = await client.get(f"{base_url}/pokemon-species/{species_id}")
                 resp.raise_for_status()
                 data = resp.json()
             return {
                 "id": species_id,
                 "name": entry["name"],
-                "name_ja": _japanese_name(data["names"]) or entry["name"],
+                "name_ja": japanese_name(data["names"]) or entry["name"],
             }
 
         _species_name_cache = await asyncio.gather(*(fetch_one(e) for e in entries))
@@ -129,16 +109,50 @@ async def _get_ja_names(
     missing = [s for s in dict.fromkeys(slugs) if s not in cache]
 
     async def fetch_one(slug: str) -> None:
-        async with _fetch_semaphore:
+        async with fetch_semaphore:
             resp = await client.get(f"{base_url}/{category}/{slug}")
         if resp.status_code == status.HTTP_200_OK:
-            cache[slug] = _japanese_name(resp.json()["names"]) or slug
+            cache[slug] = japanese_name(resp.json()["names"]) or slug
         else:
             cache[slug] = slug
 
     if missing:
         await asyncio.gather(*(fetch_one(s) for s in missing))
     return {s: cache[s] for s in slugs}
+
+
+async def _get_move_details(client: httpx.AsyncClient, slugs: list[str]) -> dict[str, dict]:
+    """技のスラッグ群について、日本語名・タイプ・威力・物理/特殊区分をまとめて解決する。
+
+    ダメージ計算画面で技をタイプ別に色分け・グループ化して選べるようにするため、
+    名前だけでなくタイプ等も一度に取得しキャッシュする。多くの技は複数の種族で
+    共有される(たいあたり等)ため、種族をまたいでキャッシュが効きやすい。
+    """
+    base_url = get_settings().pokeapi_base_url
+    missing = [s for s in dict.fromkeys(slugs) if s not in _move_detail_cache]
+
+    async def fetch_one(slug: str) -> None:
+        async with fetch_semaphore:
+            resp = await client.get(f"{base_url}/move/{slug}")
+        if resp.status_code == status.HTTP_200_OK:
+            data = resp.json()
+            _move_detail_cache[slug] = {
+                "name_ja": japanese_name(data["names"]) or slug,
+                "type": data["type"]["name"],
+                "power": data["power"] or 0,
+                "damage_class": data["damage_class"]["name"],
+            }
+        else:
+            _move_detail_cache[slug] = {
+                "name_ja": slug,
+                "type": "normal",
+                "power": 0,
+                "damage_class": "status",
+            }
+
+    if missing:
+        await asyncio.gather(*(fetch_one(s) for s in missing))
+    return {s: _move_detail_cache[s] for s in slugs}
 
 
 @router.get("/search")
@@ -177,13 +191,13 @@ async def get_species_detail(identifier: str) -> dict:
         if species_url:
             species_resp = await client.get(species_url)
             if species_resp.status_code == status.HTTP_200_OK:
-                name_ja = _japanese_name(species_resp.json()["names"])
+                name_ja = japanese_name(species_resp.json()["names"])
 
         ability_slugs = [a["ability"]["name"] for a in data["abilities"]]
         move_slugs = [m["move"]["name"] for m in data["moves"]]
-        ability_ja, move_ja = await asyncio.gather(
+        ability_ja, move_details = await asyncio.gather(
             _get_ja_names(client, "ability", ability_slugs, _ability_name_cache),
-            _get_ja_names(client, "move", move_slugs, _move_name_cache),
+            _get_move_details(client, move_slugs),
         )
 
     base_stats = {
@@ -191,6 +205,7 @@ async def get_species_detail(identifier: str) -> dict:
         for s in data["stats"]
         if s["stat"]["name"] in _STAT_NAME_MAP
     }
+    base_stats = apply_base_stat_overrides(data["id"], base_stats)
     result = {
         "id": data["id"],
         "name": data["name"],
@@ -210,9 +225,12 @@ async def get_species_detail(identifier: str) -> dict:
         ],
         "moves": [
             {
-                "id": _extract_id(m["move"]["url"]),
+                "id": extract_id(m["move"]["url"]),
                 "name": m["move"]["name"],
-                "name_ja": move_ja[m["move"]["name"]],
+                "name_ja": move_details[m["move"]["name"]]["name_ja"],
+                "type": move_details[m["move"]["name"]]["type"],
+                "power": move_details[m["move"]["name"]]["power"],
+                "damage_class": move_details[m["move"]["name"]]["damage_class"],
             }
             for m in data["moves"]
         ],

@@ -1,15 +1,38 @@
 <script>
 	import PartyBuilder from './lib/components/PartyBuilder.svelte';
+	import DamageCalculator from './lib/components/DamageCalculator.svelte';
+
+	let activeTab = 'party';
 </script>
 
 <div class="page">
 	<header>
 		<h1>BattleLens <span class="tag">(仮称)</span></h1>
 		<p class="subtitle">対戦パーティ構築・分析ツール</p>
+		<nav>
+			<button
+				type="button"
+				class:active={activeTab === 'party'}
+				on:click={() => (activeTab = 'party')}
+			>
+				パーティ構築
+			</button>
+			<button
+				type="button"
+				class:active={activeTab === 'damage'}
+				on:click={() => (activeTab = 'damage')}
+			>
+				ダメージ計算
+			</button>
+		</nav>
 	</header>
 
 	<main>
-		<PartyBuilder />
+		{#if activeTab === 'party'}
+			<PartyBuilder />
+		{:else}
+			<DamageCalculator />
+		{/if}
 	</main>
 
 	<footer>
@@ -43,6 +66,16 @@
 	.subtitle {
 		margin: 0;
 		color: var(--color-text-muted);
+	}
+	nav {
+		margin-top: var(--size-3);
+		display: flex;
+		gap: var(--size-2);
+	}
+	nav button.active {
+		background: var(--color-primary);
+		color: var(--color-primary-contrast);
+		border-color: var(--color-primary);
 	}
 	main {
 		flex: 1;

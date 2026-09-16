@@ -3,31 +3,29 @@
 
 	export let evs;
 
+	// 努力値は0〜32段階(ポケモンチャンピオンズ仕様)。選択式にして
+	// 数値入力の上下クリック操作(時間がかかる)を避ける。
+	const EV_OPTIONS = Array.from({ length: MAX_EV_PER_STAT + 1 }, (_, i) => i);
+
 	$: total = totalEv(evs);
 	$: over = total > MAX_EV_TOTAL;
 
 	function onChange(key, raw) {
-		let value = Number(raw);
-		if (Number.isNaN(value)) value = 0;
-		value = Math.max(0, Math.min(MAX_EV_PER_STAT, value));
-		evs = { ...evs, [key]: value };
+		evs = { ...evs, [key]: Number(raw) };
 	}
 </script>
 
 <div class="ev-allocator">
-	<div class="total" class:over>努力値合計: {total} / {MAX_EV_TOTAL}</div>
+	<div class="total" class:over>努力値合計: {total} / {MAX_EV_TOTAL}段階</div>
 	<div class="grid">
 		{#each STAT_KEYS as key (key)}
 			<label>
 				<span>{STAT_LABELS[key]}</span>
-				<input
-					type="number"
-					min="0"
-					max={MAX_EV_PER_STAT}
-					step="4"
-					value={evs[key]}
-					on:input={(e) => onChange(key, e.target.value)}
-				/>
+				<select value={evs[key]} on:change={(e) => onChange(key, e.target.value)}>
+					{#each EV_OPTIONS as v (v)}
+						<option value={v}>{v}</option>
+					{/each}
+				</select>
 			</label>
 		{/each}
 	</div>
