@@ -1,19 +1,35 @@
 """API入出力用のPydanticスキーマ。"""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.calculations.stats import MAX_EV_TOTAL
+from app.calculations.stats import MAX_EV_PER_STAT, MAX_EV_TOTAL
+
+Item = Literal[
+    "none",
+    "choice-band",
+    "choice-specs",
+    "choice-scarf",
+    "life-orb",
+    "expert-belt",
+    "assault-vest",
+    "eviolite",
+]
+Weather = Literal["none", "sun", "rain", "sand", "snow"]
+DamageClass = Literal["physical", "special"]
 
 
 class EVs(BaseModel):
-    hp: int = Field(default=0, ge=0, le=252)
-    attack: int = Field(default=0, ge=0, le=252)
-    defense: int = Field(default=0, ge=0, le=252)
-    special_attack: int = Field(default=0, ge=0, le=252)
-    special_defense: int = Field(default=0, ge=0, le=252)
-    speed: int = Field(default=0, ge=0, le=252)
+    """努力値(0〜32段階での割り振り。性格補正は段階の上がり方に織り込み済み)。"""
+
+    hp: int = Field(default=0, ge=0, le=MAX_EV_PER_STAT)
+    attack: int = Field(default=0, ge=0, le=MAX_EV_PER_STAT)
+    defense: int = Field(default=0, ge=0, le=MAX_EV_PER_STAT)
+    special_attack: int = Field(default=0, ge=0, le=MAX_EV_PER_STAT)
+    special_defense: int = Field(default=0, ge=0, le=MAX_EV_PER_STAT)
+    speed: int = Field(default=0, ge=0, le=MAX_EV_PER_STAT)
 
     @model_validator(mode="after")
     def check_total(self) -> "EVs":
@@ -90,3 +106,24 @@ class StatCalcRequest(BaseModel):
     evs: EVs = Field(default_factory=EVs)
     nature: str
     level: int = Field(default=50, ge=1, le=100)
+
+
+class DamageSide(BaseModel):
+    base_stats: dict[str, int]
+    types: list[str]
+    ivs: IVs = Field(default_factory=IVs)
+    evs: EVs = Field(default_factory=EVs)
+    nature: str
+    level: int = Field(default=50, ge=1, le=100)
+    item: Item = "none"
+
+
+class DamageCalcRequest(BaseModel):
+    attacker: DamageSide
+    defender: DamageSide
+    move_power: int = Field(ge=0, le=250)
+    move_type: str
+    move_damage_class: DamageClass
+    weather: Weather = "none"
+    trick_room: bool = False
+    critical: bool = False

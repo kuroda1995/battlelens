@@ -51,3 +51,7 @@ export function deleteParty(id) {
 export function calcStats(payload) {
 	return request('/calc/stats', { method: 'POST', body: JSON.stringify(payload) });
 }
+
+export function calcDamage(payload) {
+	return request('/calc/damage', { method: 'POST', body: JSON.stringify(payload) });
+}
