@@ -88,21 +88,21 @@ class BattleLensStack(Stack):
         )
 
         app_security_group = ec2.SecurityGroup(
-            self, "AppSecurityGroup", vpc=vpc, description="EC2(FastAPI)用SG"
+            self, "AppSecurityGroup", vpc=vpc, description="SG for EC2 (FastAPI)"
         )
         app_security_group.add_ingress_rule(
-            ec2.Peer.any_ipv4(), ec2.Port.tcp(80), "CloudFront/検証用にHTTPを許可"
+            ec2.Peer.any_ipv4(), ec2.Port.tcp(80), "Allow HTTP for CloudFront/testing"
         )
 
         db_security_group = ec2.SecurityGroup(
             self,
             "DbSecurityGroup",
             vpc=vpc,
-            description="RDS用SG。EC2からのみ許可",
+            description="SG for RDS. Allow only from EC2",
             allow_all_outbound=False,
         )
         db_security_group.add_ingress_rule(
-            app_security_group, ec2.Port.tcp(3306), "EC2からのMySQL接続のみ許可"
+            app_security_group, ec2.Port.tcp(3306), "Allow MySQL from EC2 only"
         )
 
         # ------------------------------------------------------------------
@@ -210,7 +210,7 @@ class BattleLensStack(Stack):
             additional_behaviors={
                 "/api/*": cloudfront.BehaviorOptions(
                     origin=origins.HttpOrigin(
-                        eip.attr_public_ip,
+                        instance.instance_public_dns_name,
                         protocol_policy=cloudfront.OriginProtocolPolicy.HTTP_ONLY,
                     ),
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -220,6 +220,8 @@ class BattleLensStack(Stack):
                 ),
             },
         )
+        # EIP関連付け後のパブリックDNS名を使うため、EIP作成後にDistributionを作る。
+        distribution.node.add_dependency(eip)
 
         s3_deploy.BucketDeployment(
             self,
