@@ -57,11 +57,11 @@ React / TypeScript / Vite / Tailwind CSS / Java / Spring Boot / Gradle / Postgre
 ```
 frontend/   Svelte + Rollup によるSPA
 backend/    FastAPI + Poetry によるREST API
-infra/      AWS CDK (Python) によるインフラ定義 ※未着手
+infra/      AWS CDK (Python) によるインフラ定義(コード作成済み・cdk synthで検証済み。cdk deployは未実施)
 docs/       本書などのドキュメント
 ```
 
-### 5.2 想定アーキテクチャ(AWSデプロイ後・未構築)
+### 5.2 想定アーキテクチャ(コードは作成済み・実デプロイは未実施)
 ```
 利用者 → CloudFront(HTTPS) ─┬─ S3(静的フロントエンド)
                              └─ /api/* → EC2(FastAPI, Nginx+systemd常駐)
@@ -72,14 +72,14 @@ DB認証情報: Secrets Manager(RDS作成時に自動生成)
 
 ## 6. 機能要件と進捗状況
 
-### 6.1 Phase 0: 基盤構築 — 一部完了
+### 6.1 Phase 0: 基盤構築 — 完了(実デプロイのみ次のステップ)
 | 項目 | 状況 |
 |---|---|
 | backend/ 一式(FastAPI + Poetry) | 完了 |
 | frontend/ 一式(Svelte + Rollup) | 完了 |
 | README・LICENSE・.gitignore・免責表示 | 完了 |
-| infra/ CDKプロジェクトの雛形作成 | **未着手** |
-| Gitリポジトリ初期化・GitHubへのpush | **未着手** |
+| infra/ CDKプロジェクト一式(VPC・EC2・RDS・S3・CloudFront) | 完了(`cdk synth`で検証済み。`cdk deploy`は未実施) |
+| Gitリポジトリ初期化・GitHubへのpush | 完了(Private リポジトリ: kuroda1995/battlelens) |
 
 ### 6.2 Phase 1: パーティ構築MVP — 実装・ローカル検証済み(AWSデプロイは未実施)
 - パーティ構築(最大6体): 種族選択(日本語名対応のPokéAPI検索)、持ち物、技構成(最大4つ、種族ごとの習得技から選択・日本語表示)、特性(日本語表示)、性格(日本語表示)、努力値(合計510・各252上限のバリデーション)、個体値(デフォルト31・編集可)。
@@ -146,27 +146,25 @@ DB認証情報: Secrets Manager(RDS作成時に自動生成)
 |---|---|
 | バックエンド(Phase1機能) | ✅ 完了・ローカル検証済み |
 | フロントエンド(Phase1機能) | ✅ 完了・ローカル検証済み(日本語化対応含む) |
-| Gitリポジトリ化 | ❌ 未着手 |
-| AWS CDKインフラコード | ❌ 未着手 |
-| AWS実デプロイ | ❌ 未着手(課金発生のため事前確認が必要) |
+| Gitリポジトリ化 | ✅ 完了(Private リポジトリ、機能ごとにブランチ+PRで運用) |
+| AWS CDKインフラコード | ✅ 完了(`cdk synth`で検証済み) |
+| AWS実デプロイ(`cdk deploy`) | ❌ 未実施(課金発生のため事前確認が必要) |
 | Phase2以降の機能 | ❌ 未着手 |
 
 ## 11. 既知の課題・リスク
 
 - ローカル動作確認はSQLiteの一時DBで代用しており、本番想定のMySQL(RDSまたはDocker上のMySQL)ではまだ検証していない。
-- Gitリポジトリが未初期化のため、GitHubへの提出用URLがまだ存在しない。
-- AWSインフラ(CDKコード)が未着手。EC2・RDSの作成は実際に課金が発生するため、着手前に必ず内容を確認する。
+- `cdk synth`(設計図の生成のみ、AWSリソースは作られない)までは検証済みだが、実際の`cdk deploy`(EC2・RDS等の作成、課金発生)は未実施。特にEC2のUserDataスクリプトは実機での動作を未検証のため、初回デプロイ時に調整が必要になる可能性がある。
 - 技・特性名の日本語キャッシュはプロセス内メモリのため、EC2再起動のたびに初回アクセスでキャッシュ再構築が発生する(数秒程度)。
 - メガシンカ・ガラル/アローラのすがた等の「フォルム違い」は現状、日本語名検索の対象外(英語名のみ)。
 
 ## 12. 次のアクション(直近のToDo)
 
-1. Gitリポジトリの初期化・初回コミット・GitHubリポジトリ作成/push
-2. `infra/` にAWS CDK(Python)プロジェクトを雛形作成(VPC・EC2・RDS・S3・CloudFront)
-3. ローカルでDocker上のMySQLを使った動作検証(現状のSQLite代用からの置き換え)
-4. AWS実デプロイの実施(事前に内容・コストを確認したうえで着手)
-5. Phase2(ダメージ計算機)の要件をさらに詳細化して実装着手
+1. ローカルでDocker上のMySQLを使った動作検証(現状のSQLite代用からの置き換え)
+2. AWS実デプロイの実施(`cdk deploy`。事前に内容・コストを確認したうえで着手し、EC2のUserData実行結果を確認)
+3. Phase2(ダメージ計算機)の要件をさらに詳細化して実装着手
 
 ## 13. 変更履歴
 
 - 2026-09-14: Phase0/Phase1のバックエンド・フロントエンドを実装。ローカル動作確認中に発覚した2件の不具合(パーティ作成時のレスポンス変換漏れ、種族検索が日本語入力に対応していなかった問題)を修正。タイプ・特性・技・性格の日本語表示に対応。
+- 2026-09-16: Gitリポジトリを初期化しGitHub(Private)へpush。技術選定理由の説明書(専門用語版・初心者向け版)を追加。`infra/`にAWS CDK(Python)一式(VPC・EC2・RDS・S3・CloudFront)を実装し、`cdk synth`で検証。
